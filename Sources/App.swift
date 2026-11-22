@@ -7,6 +7,7 @@ import Security
 @main
 final class LidStatsApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var item: NSStatusItem?
+    private var ringTimer: Timer?
     private let menu = NSMenu()
     private let stats = MenuStats()
     private let clientQueue = DispatchQueue(label: "com.lidshift.client")
@@ -177,6 +178,21 @@ final class LidStatsApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 button.toolTip = "Session status unknown. Your Mac may still be kept awake."
                 button.setAccessibilityLabel(button.toolTip)
             }
+        }
+
+        if stats.canAnimateActiveRing {
+            if ringTimer == nil {
+                let timer = Timer(timeInterval: 0.125, repeats: true) { [weak self] _ in
+                    guard let self, let button = self.item?.button, self.stats.canAnimateActiveRing else { return }
+                    self.stats.updateActiveRing(on: button)
+                }
+                timer.tolerance = 0.02
+                RunLoop.main.add(timer, forMode: .common)
+                ringTimer = timer
+            }
+        } else {
+            ringTimer?.invalidate()
+            ringTimer = nil
         }
     }
 

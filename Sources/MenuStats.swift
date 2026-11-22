@@ -12,6 +12,22 @@ final class MenuStats {
     private(set) var cpu: Int?
     private var upload: Double?
     private var download: Double?
+    private var activeRingImage: NSImage?
+    private var activeRing: SessionRing?
+
+    var canAnimateActiveRing: Bool {
+        activeRing != nil && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    func updateActiveRing(on button: NSStatusBarButton, uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        guard let image = activeRingImage, let ring = activeRing else { return }
+        let phase = canAnimateActiveRing ? uptime.truncatingRemainder(dividingBy: 10) / 10 : 0
+        button.image = NSImage(size: image.size, flipped: false) { bounds in
+            ring.draw(phase: CGFloat(phase))
+            image.draw(in: bounds)
+            return true
+        }
+    }
 
     enum Metric: String, CaseIterable {
         case cpu = "CPU"
@@ -174,13 +190,13 @@ final class MenuStats {
     func render(chipWatts: Double?, active: Bool, uncertain: Bool = false,
                 thermalState: ProcessInfo.ThermalState = ProcessInfo.processInfo.thermalState,
                 on button: NSStatusBarButton) {
-        let thermal: String
+        let thermal: (display: String, full: String)
         switch thermalState {
-        case .nominal: thermal = "Nominal"
-        case .fair: thermal = "Fair"
-        case .serious: thermal = "Serious"
-        case .critical: thermal = "Critical"
-        @unknown default: thermal = "Unknown"
+        case .nominal: thermal = ("OK", "Nominal")
+        case .fair: thermal = ("Fair", "Fair")
+        case .serious: thermal = ("High", "Serious")
+        case .critical: thermal = ("Crit", "Critical")
+        @unknown default: thermal = ("—", "Unknown")
         }
         let cpuValue = cpu.map { "\($0)%" } ?? "—"
         let power = chipWatts.map { String(format: $0 < 99.95 ? "%.1f W" : "%.0f W", $0) } ?? "N/A"
@@ -238,8 +254,8 @@ final class MenuStats {
                     lines.append((styled(power, size: 9, color: color), 0, 1))
                 case .thermal:
                     lines.append((styled("HEAT", size: 8, color: color), 0, 11))
-                    lines.append((styled(thermal, size: 9, color: color), 0, 1))
-                    for stage in ["Nominal", "Fair", "Serious", "Critical", "Unknown"] {
+                    lines.append((styled(thermal.display, size: 9, color: color), 0, 1))
+                    for stage in ["OK", "Fair", "High", "Crit"] {
                         reservedWidth = max(reservedWidth, styled(stage, size: 9, color: color).size().width)
                     }
                 case .upload, .download:
@@ -271,12 +287,12 @@ final class MenuStats {
                 } else {
                     symbol?.draw(in: iconRect)
                 }
-            } else if active || uncertain {
+            } else if uncertain {
                 ink.setStroke()
-                let outline = NSBezierPath(roundedRect: NSRect(x: 0.5, y: 0.5, width: imageWidth - 1, height: 21),
-                                           xRadius: 5, yRadius: 5)
+                let bounds = NSRect(x: 0, y: 0, width: imageWidth, height: 22)
+                let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5)
                 outline.lineWidth = 1
-                if uncertain { outline.setLineDash([2, 2], count: 2, phase: 0) }
+                outline.setLineDash([2, 2], count: 2, phase: 0)
                 outline.stroke()
             }
             var x = padding
@@ -302,7 +318,17 @@ final class MenuStats {
             }
             return true
         }
-        button.image = image
+        if active && !uncertain && !columns.isEmpty {
+            activeRingImage = image
+            if activeRing?.size != image.size || activeRing?.dark != dark {
+                activeRing = SessionRing(size: image.size, dark: dark)
+            }
+            updateActiveRing(on: button)
+        } else {
+            activeRingImage = nil
+            activeRing = nil
+            button.image = image
+        }
         var labels = [active ? "Keep-awake session active" : "LidStats"]
         for metric in order where !hidden.contains(metric) {
             switch metric {
@@ -310,11 +336,80 @@ final class MenuStats {
             case .chip: labels.append("Chip power \(chipWatts == nil ? "unavailable" : power)")
             case .upload: labels.append("Upload \(up)")
             case .download: labels.append("Download \(down)")
-            case .thermal: labels.append("Thermal pressure \(thermal)")
+            case .thermal: labels.append("Thermal pressure \(thermal.full)")
             }
         }
         let label = labels.joined(separator: ", ")
         button.setAccessibilityLabel(label)
         button.toolTip = label
+    }
+}
+
+
+private struct SessionRing {
+    let size: NSSize
+    let dark: Bool
+    private let segments: [(path: NSBezierPath, offset: CGFloat)]
+
+    init(size: NSSize, dark: Bool) {
+        self.size = size
+        self.dark = dark
+        let bounds = NSRect(origin: .zero, size: size).insetBy(dx: 1.5, dy: 1.5)
+        let outline = NSBezierPath(roundedRect: bounds, xRadius: 5, yRadius: 5).flattened
+        var start = NSPoint.zero
+        var last = NSPoint.zero
+        var point = NSPoint.zero
+        var length: CGFloat = 0
+        var paths: [(path: NSBezierPath, distance: CGFloat)] = []
+        for index in 0..<outline.elementCount {
+            switch outline.element(at: index, associatedPoints: &point) {
+            case .moveTo:
+                start = point
+                last = point
+                continue
+            case .closePath:
+                point = start
+            case .lineTo:
+                break
+            default:
+                continue
+            }
+
+            let dx = point.x - last.x
+            let dy = point.y - last.y
+            let distance = hypot(dx, dy)
+            if distance > 0 {
+                let count = Int(ceil(distance / 2.5))
+                for part in 0..<count {
+                    let from = CGFloat(part) / CGFloat(count)
+                    let to = CGFloat(part + 1) / CGFloat(count)
+                    let path = NSBezierPath()
+                    path.lineCapStyle = .round
+                    path.move(to: NSPoint(x: last.x + dx * from, y: last.y + dy * from))
+                    path.line(to: NSPoint(x: last.x + dx * to, y: last.y + dy * to))
+                    paths.append((path, length + distance * (from + to) / 2))
+                }
+                length += distance
+            }
+            last = point
+        }
+        segments = paths.map { ($0.path, $0.distance / length) }
+    }
+
+    func draw(phase: CGFloat) {
+        for (path, offset) in segments {
+            let position = offset - phase + (offset < phase ? 1 : 0)
+            let highlight = pow((1 + cos((position - 0.16) * 2 * .pi)) / 2, 6)
+            let color = NSColor(calibratedHue: position, saturation: dark ? 0.68 : 0.89,
+                                brightness: (dark ? 0.86 : 0.58) + 0.14 * highlight, alpha: 1)
+            if highlight > 0.05 {
+                color.withAlphaComponent(0.22 * highlight).setStroke()
+                path.lineWidth = 3
+                path.stroke()
+            }
+            color.setStroke()
+            path.lineWidth = 0.9 + 1.2 * highlight
+            path.stroke()
+        }
     }
 }

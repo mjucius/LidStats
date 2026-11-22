@@ -44,14 +44,24 @@ Quit and reopen LidStats after installing the helper if you want it to offer a s
 | **CPU** | Total utilization and a vertical bar. |
 | **CHIP** | Estimated power used by the CPU, GPU, and Neural Engine in watts. It excludes the display, peripherals, and battery charging. |
 | **↑ / ↓** | Upload and download rates across active Wi-Fi and Ethernet interfaces. |
-| **HEAT** | macOS thermal pressure from Nominal through Critical. Serious and Critical indicate that heat is affecting performance. The reading does not quantify the slowdown. |
+| **HEAT** | The current macOS thermal pressure. Hover over the stats to read the full state name. |
+
+| HEAT | macOS thermal state | What it means |
+| --- | --- | --- |
+| **OK** | Nominal | Thermal pressure is within normal limits. |
+| **Fair** | Fair | Thermal pressure is slightly elevated. macOS may reduce background work. |
+| **High** | Serious | macOS takes steps to cool the system that reduce performance. |
+| **Crit** | Critical | Heat is significantly affecting performance. LidStats ends an active session when macOS reports this state. |
+| **—** | Unknown | LidStats couldn’t identify the thermal state. |
+
+Thermal pressure describes the system’s response to heat. It doesn’t measure temperature or quantify the slowdown. [Apple’s thermal state documentation](https://developer.apple.com/documentation/foundation/processinfo/thermalstate-swift.enum)
 
 Open **Settings…** to show, hide, recolor, or reorder each stat. Adjacent network rates stack by default. Turn off **Stack upload and download** to display them side by side.
 
 ## Keep-awake sessions
 
 - Every session requires confirmation. With **Ask to Keep Awake on Launch** enabled, LidStats offers an indefinite session when the current helper is ready, the lid is open, and the Mac is plugged in or above the battery cutoff. To start manually, choose **Keep Awake** or **Start With Timer**, then confirm **Start Session**.
-- An outline around the stats indicates an active session. If you hide all stats, a filled bolt indicates an active session. Choose **End Session** to restore normal sleep. The helper can keep a session running after you quit the menu bar app.
+- A slow rainbow gradient travels around the stats while a session is active. The moving highlight thickens the outline as it passes. The gradient stays still when macOS Reduce Motion is enabled. A dashed outline means LidStats can’t confirm the session state. If you hide all stats, a filled bolt indicates an active session. Choose **End Session** to restore normal sleep. The helper can keep a session running after you quit the menu bar app.
 - After the lid closes, LidStats requests display sleep and switches the active energy profile to Low Power Mode when supported. It attempts to restore the previous profile when you reopen the lid.
 - A session also ends on timer expiry, macOS reporting critical heat, or the battery reaching its cutoff while unplugged. The cutoff defaults to 10% and is adjustable from 5% to 100%. At the cutoff, LidStats restores normal sleep and asks macOS to sleep immediately if the lid is closed. On restart, the helper attempts to restore settings from the previous session.
 - **Activity History…** shows up to 12 recent lid closures during sessions. It includes observed close and reopen times, available battery readings, interruptions, and display-sleep failures. Its system sleep check covers the interval between the recorded lid observations.
