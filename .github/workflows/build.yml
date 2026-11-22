@@ -1,0 +1,32 @@
+name: Build installer
+
+on:
+  pull_request:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Build app and unsigned test installer
+        run: |
+          test "$(uname -m)" = arm64
+          for script in build.sh package.sh setup-helper.sh Packaging/preinstall Packaging/postinstall; do
+            /bin/zsh -n "$script"
+          done
+          ./build.sh
+          ./package.sh --local-development
+          pkgutil --payload-files dist/LidStats-local.pkg | grep -F 'LidStats.app/Contents/MacOS/LidStats'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: LidStats-local-unsigned
+          path: dist/LidStats-local.pkg
+          if-no-files-found: error

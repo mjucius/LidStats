@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+    <dict>
+        <key>RootRelativeBundlePath</key><string>LidStats.app</string>
+        <key>BundleHasStrictIdentifier</key><true/>
+        <key>BundleIsRelocatable</key><false/>
+        <key>BundleIsVersionChecked</key><true/>
+        <key>BundleOverwriteAction</key><string>upgrade</string>
+    </dict>
+</array>
+</plist>

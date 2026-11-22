@@ -1,0 +1,44 @@
+#!/bin/zsh
+set -euo pipefail
+[[ "${3:-}" == / ]] || exit 1
+cd -- "${0:A:h}"
+
+app=/Applications/LidStats.app
+backup=""
+if [[ -f app-backup-path ]]; then
+    backup=$(<app-backup-path)
+    if [[ ! "$backup" =~ '^/Applications/\.lidstats-rollback\.[A-Za-z0-9]+$' ||
+          ! -d "$backup/LidStats.app" || -L "$backup" ]]; then
+        print -u2 'Could not verify the previous app backup.'
+        exit 1
+    fi
+fi
+
+restore_app_on_failure() {
+    local result=$1
+    trap - EXIT INT TERM
+    if [[ -z "$backup" ]]; then return "$result"; fi
+    if (( result != 0 )); then
+        if [[ -e "$app" || -L "$app" ]]; then
+            /bin/mv -- "$app" "$backup/failed-install.app" || return 1
+        fi
+        if ! /bin/mv -- "$backup/LidStats.app" "$app"; then
+            print -u2 "Couldn’t restore the previous app. The copy remains in $backup."
+            return 1
+        fi
+        print -u2 'Restored the previous LidStats app after helper setup failed.'
+    fi
+    /bin/rm -rf -- "$backup"
+    return "$result"
+}
+trap 'restore_app_on_failure "$?"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+expected_digest=$(<helper-sha256)
+team_id=$(<team-id)
+if [[ -n "$team_id" ]]; then
+    /bin/zsh ./setup-helper.sh --package-install "$expected_digest" --team-id "$team_id"
+else
+    /bin/zsh ./setup-helper.sh --package-install "$expected_digest" --local-development
+fi

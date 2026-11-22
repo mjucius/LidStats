@@ -1,0 +1,90 @@
+name: Release installer
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  release:
+    if: github.ref_protected
+    runs-on: macos-15
+    environment: release
+    permissions:
+      contents: write
+    env:
+      LIDSTATS_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      LIDSTATS_SIGN_IDENTITY: ${{ vars.DEVELOPER_ID_APPLICATION }}
+      LIDSTATS_INSTALLER_IDENTITY: ${{ vars.DEVELOPER_ID_INSTALLER }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Validate release inputs
+        shell: bash
+        run: |
+          test "$(uname -m)" = arm64
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$LIDSTATS_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]
+          [[ "$LIDSTATS_SIGN_IDENTITY" == 'Developer ID Application: '* ]]
+          [[ "$LIDSTATS_INSTALLER_IDENTITY" == 'Developer ID Installer: '* ]]
+          printf 'LIDSTATS_VERSION=%s\n' "${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - name: Import Developer ID identities
+        shell: bash
+        env:
+          APPLICATION_P12: ${{ secrets.APPLICATION_P12_BASE64 }}
+          APPLICATION_P12_PASSWORD: ${{ secrets.APPLICATION_P12_PASSWORD }}
+          INSTALLER_P12: ${{ secrets.INSTALLER_P12_BASE64 }}
+          INSTALLER_P12_PASSWORD: ${{ secrets.INSTALLER_P12_PASSWORD }}
+        run: |
+          umask 077
+          keychain="$RUNNER_TEMP/lidstats-signing.keychain-db"
+          password="$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          printf '%s' "$APPLICATION_P12" | base64 -D > "$RUNNER_TEMP/application.p12"
+          printf '%s' "$INSTALLER_P12" | base64 -D > "$RUNNER_TEMP/installer.p12"
+          security import "$RUNNER_TEMP/application.p12" -k "$keychain" -P "$APPLICATION_P12_PASSWORD" -T /usr/bin/codesign
+          security import "$RUNNER_TEMP/installer.p12" -k "$keychain" -P "$INSTALLER_P12_PASSWORD" -T /usr/bin/productbuild
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          rm -f -- "$RUNNER_TEMP/application.p12" "$RUNNER_TEMP/installer.p12"
+      - name: Build and sign installer
+        run: |
+          ./build.sh
+          ./package.sh
+      - name: Notarize and verify installer
+        shell: bash
+        env:
+          NOTARY_KEY_BASE64: ${{ secrets.NOTARY_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ vars.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ vars.NOTARY_ISSUER_ID }}
+        run: |
+          umask 077
+          key="$RUNNER_TEMP/lidstats-notary.p8"
+          trap 'rm -f -- "$key"' EXIT
+          printf '%s' "$NOTARY_KEY_BASE64" | base64 -D > "$key"
+          xcrun notarytool submit dist/LidStats.pkg --key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait --timeout 30m
+          xcrun stapler staple dist/LidStats.pkg
+          xcrun stapler validate dist/LidStats.pkg
+          pkgutil --check-signature dist/LidStats.pkg
+          spctl --assess --type install --verbose dist/LidStats.pkg
+          (cd dist && shasum -a 256 LidStats.pkg > LidStats.pkg.sha256)
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --draft --generate-notes \
+            dist/LidStats.pkg dist/LidStats.pkg.sha256
+      - name: Remove signing material
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/lidstats-signing.keychain-db" || true
+          rm -f -- "$RUNNER_TEMP/application.p12" "$RUNNER_TEMP/installer.p12" "$RUNNER_TEMP/lidstats-notary.p8"

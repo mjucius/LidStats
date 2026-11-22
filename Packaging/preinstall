@@ -1,0 +1,25 @@
+#!/bin/zsh
+set -euo pipefail
+if [[ "${3:-}" != / || "$(/usr/bin/uname -m)" != arm64 ]]; then
+    print -u2 'Install LidStats on the current startup volume of an Apple Silicon Mac.'
+    exit 1
+fi
+if (( $(/usr/bin/stat -f '%u' /dev/console) < 501 )); then
+    print -u2 'Sign in to a regular macOS account before installing LidStats.'
+    exit 1
+fi
+if /usr/bin/pgrep -x LidStats >/dev/null; then
+    print -u2 'End any active session and quit LidStats before installing.'
+    exit 1
+fi
+app=/Applications/LidStats.app
+if [[ -L "$app" || ( -e "$app" && ! -d "$app" ) ]]; then
+    print -u2 'The existing LidStats application path is not a regular app bundle.'
+    exit 1
+fi
+if [[ -d "$app" ]]; then
+    backup=$(/usr/bin/mktemp -d /Applications/.lidstats-rollback.XXXXXXXX)
+    /bin/chmod 0700 "$backup"
+    /usr/bin/ditto "$app" "$backup/LidStats.app"
+    print -r -- "$backup" > "${0:A:h}/app-backup-path"
+fi

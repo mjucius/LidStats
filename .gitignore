@@ -1,0 +1,7 @@
+.build/
+LidStats.app/
+.DS_Store
+*.p12
+*.p8
+*.key
+dist/
