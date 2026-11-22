@@ -15,7 +15,7 @@ This creates `dist/LidStats-local.pkg` for development. It uses ad hoc applicati
 
 The **Build installer** workflow compiles and packages LidStats on an Apple Silicon runner without signing credentials. It uploads the unsigned package as a workflow artifact for inspection. The **Release installer** workflow runs on a version tag such as `v1.2.0`. It assigns the tag version to the app and installer, signs both, notarizes and staples the installer, and attaches the installer and SHA-256 checksum to a draft GitHub release.
 
-Create a tag ruleset for `v*` that restricts tag creation, updates, and deletion to trusted release maintainers. The release job skips unprotected tags. Create a GitHub environment named `release`, restrict it to release tags, and require a trusted reviewer if your repository plan supports it. Set these protections before adding signing secrets. Add these environment variables and secrets:
+Create a tag ruleset for `v*` that restricts tag creation, updates, and deletion to trusted release maintainers. The workflow skips unprotected tags. A separate check confirms that a version tag points to a commit on `main` before starting the signing job. Create a GitHub environment named `release`, restrict it to release tags, and require a trusted reviewer if your repository plan supports it. Set these protections before adding signing secrets. Add these environment variables and secrets:
 
 | Kind | Name | Value |
 | --- | --- | --- |
